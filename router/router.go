@@ -8,7 +8,7 @@ import (
 )
 
 // Namespace is the key to use to store and access the custom config data for the router
-const Namespace = "github.com/NidzamuddinMSoluix/nidzam-rate-limit/rate_limit"
+const Namespace = "github.com/NidzamuddinMSoluix/nidzam-rate-limit/router"
 
 // Config is the custom config struct containing the params for the router middlewares
 type Config struct {
