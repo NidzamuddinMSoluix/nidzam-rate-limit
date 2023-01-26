@@ -146,6 +146,7 @@ type EndpointMw func(gin.HandlerFunc) gin.HandlerFunc
 
 func NewTokenLimiterMw() EndpointMw {
 	return func(next gin.HandlerFunc) gin.HandlerFunc {
+
 		type client struct {
 			limiter  *rate.Limiter
 			lastSeen time.Time
@@ -170,6 +171,8 @@ func NewTokenLimiterMw() EndpointMw {
 			}
 		}()
 		return func(c *gin.Context) {
+			c.AbortWithError(http.StatusTooManyRequests, errors.New("hay"))
+			return
 			ip := c.ClientIP()
 
 			// Lock()
@@ -186,11 +189,10 @@ func NewTokenLimiterMw() EndpointMw {
 			// Check if request allowed
 			if !clients[ip].limiter.Allow() {
 				mu.Unlock()
-				errr := errors.New("too many request")
-				if errr != nil {
-					c.AbortWithError(http.StatusTooManyRequests, errr)
-					return
-				}
+
+				c.AbortWithError(http.StatusTooManyRequests, errors.New("too many request"))
+				return
+
 			}
 
 			mu.Unlock()
