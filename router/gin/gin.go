@@ -149,7 +149,7 @@ func NewTokenLimiterMw() EndpointMw {
 				c.AbortWithError(http.StatusTooManyRequests, errr)
 				return
 			}
-			next(c)
+			// next(c)
 		}
 	}
 }
