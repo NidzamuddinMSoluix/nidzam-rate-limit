@@ -171,8 +171,7 @@ func NewTokenLimiterMw() EndpointMw {
 			}
 		}()
 		return func(c *gin.Context) {
-			c.AbortWithError(http.StatusTooManyRequests, errors.New("hay"))
-			return
+
 			ip := c.ClientIP()
 
 			// Lock()
