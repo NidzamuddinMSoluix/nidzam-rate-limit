@@ -3,8 +3,11 @@ package gin
 import (
 	"errors"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/NidzamuddinMSoluix/nidzam-rate-limit/router"
+	"golang.org/x/time/rate"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luraproject/lura/v2/config"
@@ -22,18 +25,18 @@ func NewRateLimiterMw(logger logging.Logger, next krakendgin.HandlerFactory) kra
 	return func(remote *config.EndpointConfig, p proxy.Proxy) gin.HandlerFunc {
 		logPrefix := "[ENDPOINT: " + remote.Endpoint + "][Ratelimit]"
 		handlerFunc := next(remote, p)
-		handlerFunc = NewTokenLimiterMw()(handlerFunc)
+
 		cfg, err := router.ConfigGetter(remote.ExtraConfig)
 		if err != nil {
 			if err != router.ErrNoExtraCfg {
 				logger.Error(logPrefix, err)
 			}
-			handlerFunc = NewTokenLimiterMw()(handlerFunc)
+
 			return handlerFunc
 		}
 
 		if cfg.MaxRate <= 0 && cfg.ClientMaxRate <= 0 {
-			handlerFunc = NewTokenLimiterMw()(handlerFunc)
+
 			return handlerFunc
 		}
 
@@ -47,7 +50,7 @@ func NewRateLimiterMw(logger logging.Logger, next krakendgin.HandlerFactory) kra
 			}
 			logger.Debug(logPrefix, "Rate limit enabled")
 			// handlerFunc = NewEndpointRateLimiterMw(juju.NewLimiter(cfg.MaxRate, cfg.Capacity))(handlerFunc)
-			handlerFunc = NewTokenLimiterMw()(handlerFunc)
+
 			return handlerFunc
 		}
 		if cfg.ClientMaxRate > 0 {
@@ -142,16 +145,56 @@ type EndpointMw func(gin.HandlerFunc) gin.HandlerFunc
 // }
 
 func NewTokenLimiterMw() EndpointMw {
+	type client struct {
+		limiter  *rate.Limiter
+		lastSeen time.Time
+	}
+	var (
+		mu      sync.Mutex
+		clients = make(map[string]*client)
+	)
+	// Launch a backaground Goroutine that removes old entries
+	// from the clients map once every minute
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			// Lock before starting to cleanup
+			mu.Lock()
+			for ip, client := range clients {
+				if time.Since(client.lastSeen) > 3*time.Minute {
+					delete(clients, ip)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
 	return func(next gin.HandlerFunc) gin.HandlerFunc {
 		return func(c *gin.Context) {
-			errr := errors.New("too many request")
-			if errr != nil {
-				c.AbortWithError(http.StatusTooManyRequests, errr)
-				return
+			ip := c.ClientIP()
+
+			// Lock()
+			mu.Lock()
+			// Check if the IP address is in the map
+			if _, found := clients[ip]; !found {
+				clients[ip] = &client{limiter: rate.NewLimiter(
+					rate.Limit(1),
+					2,
+				)}
 			}
-			c.AbortWithError(http.StatusTooManyRequests, errr)
-			return
-			// next(c)
+			// Update the last seen time of the client
+			clients[ip].lastSeen = time.Now()
+			// Check if request allowed
+			if !clients[ip].limiter.Allow() {
+				mu.Unlock()
+				errr := errors.New("too many request")
+				if errr != nil {
+					c.AbortWithError(http.StatusTooManyRequests, errr)
+					return
+				}
+			}
+
+			mu.Unlock()
+			next(c)
 		}
 	}
 }
