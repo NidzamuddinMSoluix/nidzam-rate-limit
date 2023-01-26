@@ -189,7 +189,7 @@ func NewTokenLimiterMw() EndpointMw {
 			if !clients[ip].limiter.Allow() {
 				mu.Unlock()
 
-				c.AbortWithError(http.StatusTooManyRequests, errors.New("too many request"))
+				c.AbortWithError(http.StatusTooManyRequests, errors.New("rate limit exceded"))
 				return
 
 			}
