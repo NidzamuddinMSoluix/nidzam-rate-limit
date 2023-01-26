@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/NidzamuddinMSoluix/nidzam-rate-limit/router"
+	"github.com/NidzamuddinMSoluix/nidzam-rate-limit/rate_limit/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luraproject/lura/v2/config"
