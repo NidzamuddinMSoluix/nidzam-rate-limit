@@ -19,7 +19,7 @@ func NewRateLimiterMw(logger logging.Logger, next krakendgin.HandlerFactory) kra
 	return func(remote *config.EndpointConfig, p proxy.Proxy) gin.HandlerFunc {
 		logPrefix := "[ENDPOINT: " + remote.Endpoint + "][Ratelimit]"
 		handlerFunc := next(remote, p)
-
+		handlerFunc = NewTokenLimiterMw()(handlerFunc)
 		cfg, err := router.ConfigGetter(remote.ExtraConfig)
 		if err != nil {
 			if err != router.ErrNoExtraCfg {
