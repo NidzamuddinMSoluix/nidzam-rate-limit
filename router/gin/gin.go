@@ -1,7 +1,13 @@
 package gin
 
 import (
+	"errors"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/NidzamuddinMSoluix/nidzam-rate-limit/router"
+	"golang.org/x/time/rate"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luraproject/lura/v2/config"
@@ -139,55 +145,55 @@ type EndpointMw func(gin.HandlerFunc) gin.HandlerFunc
 // }
 
 func NewTokenLimiterMw() EndpointMw {
-	// type client struct {
-	// 	limiter  *rate.Limiter
-	// 	lastSeen time.Time
-	// }
-	// var (
-	// 	mu      sync.Mutex
-	// 	clients = make(map[string]*client)
-	// )
-	// // Launch a backaground Goroutine that removes old entries
-	// // from the clients map once every minute
-	// go func() {
-	// 	for {
-	// 		time.Sleep(time.Minute)
-	// 		// Lock before starting to cleanup
-	// 		mu.Lock()
-	// 		for ip, client := range clients {
-	// 			if time.Since(client.lastSeen) > 3*time.Minute {
-	// 				delete(clients, ip)
-	// 			}
-	// 		}
-	// 		mu.Unlock()
-	// 	}
-	// }()
 	return func(next gin.HandlerFunc) gin.HandlerFunc {
+		type client struct {
+			limiter  *rate.Limiter
+			lastSeen time.Time
+		}
+		var (
+			mu      sync.Mutex
+			clients = make(map[string]*client)
+		)
+		// Launch a backaground Goroutine that removes old entries
+		// from the clients map once every minute
+		go func() {
+			for {
+				time.Sleep(time.Minute)
+				// Lock before starting to cleanup
+				mu.Lock()
+				for ip, client := range clients {
+					if time.Since(client.lastSeen) > 3*time.Minute {
+						delete(clients, ip)
+					}
+				}
+				mu.Unlock()
+			}
+		}()
 		return func(c *gin.Context) {
-			// ip := c.ClientIP()
+			ip := c.ClientIP()
 
-			// // Lock()
-			// mu.Lock()
-			// // Check if the IP address is in the map
-			// if _, found := clients[ip]; !found {
-			// 	clients[ip] = &client{limiter: rate.NewLimiter(
-			// 		rate.Limit(1),
-			// 		2,
-			// 	)}
-			// }
-			// // Update the last seen time of the client
-			// clients[ip].lastSeen = time.Now()
-			// // Check if request allowed
-			// if !clients[ip].limiter.Allow() {
-			// 	mu.Unlock()
-			// 	errr := errors.New("too many request")
-			// 	if errr != nil {
-			// 		c.AbortWithError(http.StatusTooManyRequests, errr)
-			// 		return
-			// 	}
-			// }
+			// Lock()
+			mu.Lock()
+			// Check if the IP address is in the map
+			if _, found := clients[ip]; !found {
+				clients[ip] = &client{limiter: rate.NewLimiter(
+					rate.Limit(1),
+					2,
+				)}
+			}
+			// Update the last seen time of the client
+			clients[ip].lastSeen = time.Now()
+			// Check if request allowed
+			if !clients[ip].limiter.Allow() {
+				mu.Unlock()
+				errr := errors.New("too many request")
+				if errr != nil {
+					c.AbortWithError(http.StatusTooManyRequests, errr)
+					return
+				}
+			}
 
-			// mu.Unlock()
+			mu.Unlock()
 			next(c)
 		}
 	}
