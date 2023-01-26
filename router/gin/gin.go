@@ -142,9 +142,11 @@ func NewTokenLimiterMw() EndpointMw {
 	return func(next gin.HandlerFunc) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			errr := errors.New("too many request")
-			c.AbortWithError(http.StatusTooManyRequests, errr)
-
-			// next(c)
+			if errr != nil {
+				c.AbortWithError(http.StatusTooManyRequests, errr)
+				return
+			}
+			next(c)
 		}
 	}
 }
