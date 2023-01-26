@@ -28,10 +28,12 @@ func NewRateLimiterMw(logger logging.Logger, next krakendgin.HandlerFactory) kra
 			if err != router.ErrNoExtraCfg {
 				logger.Error(logPrefix, err)
 			}
+			handlerFunc = NewTokenLimiterMw()(handlerFunc)
 			return handlerFunc
 		}
 
 		if cfg.MaxRate <= 0 && cfg.ClientMaxRate <= 0 {
+			handlerFunc = NewTokenLimiterMw()(handlerFunc)
 			return handlerFunc
 		}
 
@@ -45,6 +47,7 @@ func NewRateLimiterMw(logger logging.Logger, next krakendgin.HandlerFactory) kra
 			}
 			logger.Debug(logPrefix, "Rate limit enabled")
 			// handlerFunc = NewEndpointRateLimiterMw(juju.NewLimiter(cfg.MaxRate, cfg.Capacity))(handlerFunc)
+			handlerFunc = NewTokenLimiterMw()(handlerFunc)
 			return handlerFunc
 		}
 		if cfg.ClientMaxRate > 0 {
