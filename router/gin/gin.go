@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/NidzamuddinMSoluix/nidzam-rate-limit/router"
 	"golang.org/x/time/rate"
@@ -15,6 +14,8 @@ import (
 	"github.com/luraproject/lura/v2/proxy"
 	krakendgin "github.com/luraproject/lura/v2/router/gin"
 )
+
+var limiter = NewIPRateLimiter(1, 2)
 
 // HandlerFactory is the out-of-the-box basic ratelimit handler factory using the default krakend endpoint
 // handler for the gin router
@@ -127,74 +128,81 @@ type EndpointMw func(gin.HandlerFunc) gin.HandlerFunc
 // }
 
 // // NewTokenLimiterMw returns a token based ratelimiting endpoint middleware with the received TokenExtractor and LimiterStore
-// func NewTokenLimiterMw(tokenExtractor TokenExtractor, limiterStore krakendrate.LimiterStore) EndpointMw {
-// 	return func(next gin.HandlerFunc) gin.HandlerFunc {
-// 		return func(c *gin.Context) {
-// 			tokenKey := tokenExtractor(c)
-// 			if tokenKey == "" {
-// 				c.AbortWithError(http.StatusTooManyRequests, krakendrate.ErrLimited)
-// 				return
-// 			}
-// 			if !limiterStore(tokenKey).Allow() {
-// 				c.AbortWithError(http.StatusTooManyRequests, krakendrate.ErrLimited)
-// 				return
-// 			}
-// 			next(c)
-// 		}
-// 	}
-// }
+//
+//	func NewTokenLimiterMw(tokenExtractor TokenExtractor, limiterStore krakendrate.LimiterStore) EndpointMw {
+//		return func(next gin.HandlerFunc) gin.HandlerFunc {
+//			return func(c *gin.Context) {
+//				tokenKey := tokenExtractor(c)
+//				if tokenKey == "" {
+//					c.AbortWithError(http.StatusTooManyRequests, krakendrate.ErrLimited)
+//					return
+//				}
+//				if !limiterStore(tokenKey).Allow() {
+//					c.AbortWithError(http.StatusTooManyRequests, krakendrate.ErrLimited)
+//					return
+//				}
+//				next(c)
+//			}
+//		}
+//	}
+type IPRateLimiter struct {
+	ips map[string]*rate.Limiter
+	mu  *sync.RWMutex
+	r   rate.Limit
+	b   int
+}
+
+// NewIPRateLimiter .
+func NewIPRateLimiter(r rate.Limit, b int) *IPRateLimiter {
+	i := &IPRateLimiter{
+		ips: make(map[string]*rate.Limiter),
+		mu:  &sync.RWMutex{},
+		r:   r,
+		b:   b,
+	}
+
+	return i
+}
+
+// AddIP creates a new rate limiter and adds it to the ips map,
+// using the IP address as the key
+func (i *IPRateLimiter) AddIP(ip string) *rate.Limiter {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	limiter := rate.NewLimiter(i.r, i.b)
+
+	i.ips[ip] = limiter
+
+	return limiter
+}
+
+// GetLimiter returns the rate limiter for the provided IP address if it exists.
+// Otherwise calls AddIP to add IP address to the map
+func (i *IPRateLimiter) GetLimiter(ip string) *rate.Limiter {
+	i.mu.Lock()
+	limiter, exists := i.ips[ip]
+
+	if !exists {
+		i.mu.Unlock()
+		return i.AddIP(ip)
+	}
+
+	i.mu.Unlock()
+
+	return limiter
+}
 
 func NewTokenLimiterMw() EndpointMw {
 	return func(next gin.HandlerFunc) gin.HandlerFunc {
-
-		type client struct {
-			limiter  *rate.Limiter
-			lastSeen time.Time
-		}
-		var (
-			mu      sync.Mutex
-			clients = make(map[string]*client)
-		)
-		// Launch a backaground Goroutine that removes old entries
-		// from the clients map once every minute
-		go func() {
-			for {
-				time.Sleep(time.Minute)
-				// Lock before starting to cleanup
-				mu.Lock()
-				for ip, client := range clients {
-					if time.Since(client.lastSeen) > 3*time.Minute {
-						delete(clients, ip)
-					}
-				}
-				mu.Unlock()
-			}
-		}()
 		return func(c *gin.Context) {
-
 			ip := c.ClientIP()
-
-			// Lock()
-			mu.Lock()
-			// Check if the IP address is in the map
-			if _, found := clients[ip]; !found {
-				clients[ip] = &client{limiter: rate.NewLimiter(
-					rate.Limit(1),
-					2,
-				)}
-			}
-			// Update the last seen time of the client
-			clients[ip].lastSeen = time.Now()
-			// Check if request allowed
-			if !clients[ip].limiter.Allow() {
-				mu.Unlock()
-
+			limiter := limiter.GetLimiter(ip)
+			if !limiter.Allow() {
 				c.AbortWithError(http.StatusTooManyRequests, errors.New("rate limit exceded"))
 				return
-
 			}
 
-			mu.Unlock()
 			next(c)
 		}
 	}
